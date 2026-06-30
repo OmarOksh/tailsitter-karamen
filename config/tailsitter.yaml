@@ -1,0 +1,71 @@
+# =============================================================================
+# Tailsitter flying-wing parameters.
+#
+# PUBLISHED values are from Tal-Ryou-Karaman (T-RO 2023), Table II, and from the
+# control paper (Doc 3) experimental setup. All aerodynamic coefficients absorb
+# air density; rescale them if you change air density appreciably.
+#
+# Lines marked `# ESTIMATE` are geometry-based guesses: the paper does NOT
+# publish the inertia tensor, moment arms, alpha0/alphaT, or actuator time
+# constants. Replace them with measured or flight-identified values to tighten
+# the numeric match to the paper.
+# =============================================================================
+
+vehicle:
+  # ---- mass / geometry (Table II) ----
+  mass:          0.68        # kg
+  span:          0.55        # m
+  aspect_ratio:  4.3
+  prop_diameter: 0.13        # m
+
+  # ---- inertia tensor J [kg m^2], body frame (bx fwd, by span, bz down) ----
+  # ESTIMATE: thin-wing approximation. m=0.68, b=0.55, c=b/AR=0.128.
+  #   Ixx (roll about chord, mass along span)  ~ (1/12) m b^2          ~ 0.0171
+  #   Iyy (pitch about span, mass along chord) ~ (1/12) m c^2          ~ 0.0009
+  #   Izz (yaw, mass in bx-by plane)           ~ (1/12) m (b^2 + c^2)  ~ 0.0180
+  inertia:       [0.0185, 0.0012, 0.0196]   # ESTIMATE (diagonal Ixx,Iyy,Izz)
+
+  # ---- moment arms [m] ----
+  lTy:           0.15        # ESTIMATE: CG -> each motor along span
+  lDy:           0.18        # ESTIMATE: CG -> each flap center along span
+  lDx:           0.07        # ESTIMATE: by-axis -> flap aero center along chord
+
+  # ---- frame angles [rad] ----
+  alpha0:        -0.05       # ESTIMATE: zero-lift AoA (cambered airfoil, ~ -3 deg)
+  alphaT:        -0.05       # ESTIMATE: thrust line tilt (motors tilted down)
+
+  # ---- phi-theory aerodynamic coefficients (Table II) ----
+  cLV:           0.29        # kg/m   wing lift
+  cDV:           0.0         #        wing drag (set 0 indoors per paper; nonzero outdoors)
+  cLT:           2.23        #        propwash-induced lift
+  cDT:           0.0         #        propeller efficiency loss (set 0 indoors)
+  cLV_flap:      0.18        # kg/m   flap lift due to airspeed  (c^delta_LV)
+  cLT_flap:      1.25        #        flap lift due to propwash  (c^delta_LT)
+  cmuT:          -0.025      # m      thrust-induced pitch moment (c_muT)
+
+  # ---- propulsion (Table II) ----
+  cT:            1.62e-6     # kg m / rad^2     Ti = cT * wi^2
+  cmu:           1.78e-8     # kg m^2 / rad^2   propeller torque coeff
+  w_max:         2500.0      # rad/s
+  w_min:         0.0
+  flap_max:      1.0         # rad
+  flap_min:      -1.0
+
+sim:
+  g:           9.81
+  dt:          5.0e-4        # 2 kHz, matches onboard control rate
+  integrator:  rk4
+
+optimization:                # Phase 2
+  yaw_weight:      1.0
+  n_sample:        40
+  time_scale_init: 1.0
+
+controller:                  # Phase 3 (placeholders)
+  Kx:           4.0
+  Kv:           4.0
+  Ka:           1.0
+  Kq:           80.0
+  Komega:       20.0
+  lpf_cutoff_hz: 15.0
+  hpf_cutoff_hz: 1.0
