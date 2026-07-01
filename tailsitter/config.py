@@ -60,9 +60,13 @@ class SimCfg:
 
 @dataclass
 class OptCfg:                       # Phase 2
-    yaw_weight: float = 1.0
-    n_sample: int = 40
-    time_scale_init: float = 1.0
+    nominal_speed: float = 6.0      # initial time allocation speed [m/s]
+    pos_order: int = 4              # minimise snap (position)
+    yaw_order: int = 3              # minimise jerk (yaw)
+    feas_samples: int = 400         # samples along a trajectory for feasibility
+    alpha_lo: float = 0.05          # time-scaling search bounds
+    alpha_hi: float = 20.0
+    alpha_tol: float = 1.0e-3
 
 
 @dataclass

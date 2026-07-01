@@ -56,10 +56,14 @@ sim:
   dt:          5.0e-4        # 2 kHz, matches onboard control rate
   integrator:  rk4
 
-optimization:                # Phase 2
-  yaw_weight:      1.0
-  n_sample:        40
-  time_scale_init: 1.0
+optimization:                # Phase 2 (trajectory generation)
+  nominal_speed:   6.0       # m/s, initial time allocation
+  pos_order:       4         # 4 = minimise snap (position), degree 7
+  yaw_order:       3         # 3 = minimise jerk (yaw), degree 5
+  feas_samples:    400       # samples along trajectory for feasibility check
+  alpha_lo:        0.05      # time-scaling search bounds (small = fast)
+  alpha_hi:        20.0
+  alpha_tol:       1.0e-3
 
 controller:                  # Phase 3 (placeholders)
   Kx:           4.0

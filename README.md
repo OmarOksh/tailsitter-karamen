@@ -10,8 +10,15 @@ the paper's differential-flatness transform, so any smooth flat output
 `sigma(t) = [x(t), psi(t)]` (position + yaw) maps to the full state and the rotor /
 flap inputs — and trajectory feasibility becomes a cheap open-loop check.
 
-**Status: Phase 1 complete and validated.** (Phase 2 = trajectory generation,
-Phase 3 = INDI tracking controller.)
+**Status: Phases 1 and 2 complete and validated.** (Phase 3 = INDI tracking
+controller.)
+
+* **Phase 1** — `phi`-theory dynamics, 6-DOF simulator, differential-flatness
+  transform (`sigma -> ` state + inputs), open-loop feasibility.
+* **Phase 2** — minimum-snap trajectory generation through maneuver waypoints,
+  tailsitter feasibility (drop-in for the quadrotor model), and time-optimal
+  scaling; a catalog of aerobatic figures (loop, knife-edge, climbing turn,
+  Immelmann, Split-S, differential-thrust turn, racing gates).
 
 ---
 
@@ -26,16 +33,18 @@ additionally needs `jupyter` / `nbconvert`.
 
 ## Run
 
-Open the walkthrough — it drives every piece step by step and renders the plots:
+Open the walkthroughs — they drive every piece step by step and render the plots:
 
 ```bash
-jupyter notebook notebooks/phase1_walkthrough.ipynb
+jupyter notebook notebooks/phase1_walkthrough.ipynb   # dynamics, sim, flatness
+jupyter notebook notebooks/phase2_walkthrough.ipynb   # min-snap, feasibility, time-opt
 ```
 
-Run the validation suite directly:
+Run the validation suites directly:
 
 ```bash
 python tests/test_phase1.py
+python tests/test_phase2.py
 ```
 
 ## What's here
@@ -50,11 +59,17 @@ tailsitter-aero/
 │   │   ├── phi_theory.py          # force & moment model      (Doc 4, Eqs 5-14)
 │   │   └── sim6dof.py             # 6-DOF RK4 simulator       (Doc 4, Eqs 1-4)
 │   ├── flatness/transform.py      # the flatness transform    (Doc 4, Eqs 20-56)
-│   ├── trajgen/                   # Phase 2 (min-snap + feasibility)  [stub]
+│   ├── trajgen/                   # Phase 2
+│   │   ├── minsnap.py             # minimum-snap piecewise polynomials
+│   │   ├── feasibility.py         # actuator demand via the flatness transform
+│   │   ├── timeopt.py             # time allocation + time-optimal scaling
+│   │   └── maneuvers.py           # aerobatic waypoint/yaw catalog
 │   └── control/                   # Phase 3 (INDI controller)         [stub]
 ├── notebooks/phase1_walkthrough.ipynb
+├── notebooks/phase2_walkthrough.ipynb
 ├── tests/test_phase1.py
-└── plots/                         # figures written by the notebook
+├── tests/test_phase2.py
+└── plots/                         # figures written by the notebooks
 ```
 
 ## Conventions
@@ -97,6 +112,56 @@ T1 circle   force/attitude reconstruction (Eqs 20-26)  7.2e-15   PASS
 T2          numeric Omega carries the attitude         7.8e-12   PASS
 ```
 
+## Phase 2 — trajectory generation
+
+The pipeline is `maneuver -> min-snap -> feasibility -> time-optimal`:
+
+```python
+from tailsitter.config import load_config
+from tailsitter.trajgen import (min_snap_trajectory, allocate_times,
+                                TailsitterFeasibility, time_optimal_scale, maneuvers)
+
+cfg = load_config()
+m   = maneuvers.loop(radius=3.0, speed=7.0)          # waypoints + yaw + entry speed
+k0  = allocate_times(m["waypoints"], m["nominal_speed"])
+opt = time_optimal_scale(m["waypoints"], k0, yaw=m["yaw"], cfg=cfg,
+                         v0=m["v0"], v1=m["v1"])       # fastest feasible timing
+print(opt["alpha"], opt["feas"]["duration"], opt["feas"]["feasible"])
+```
+
+* **`minsnap.py`** — Richter-Bry / Mellinger-Kumar minimum-snap, the same
+  formulation as MIT-AERA `mfboTrajectory` (`BaseTrajFunc`/`MinSnapTrajectory`),
+  reimplemented self-contained: positions fixed at waypoints, interior derivatives
+  free, minimise `int snap^2`; yaw is a separate jerk-minimising (degree-5) spline.
+  Segments are time-normalised so the QP stays well conditioned.
+* **`feasibility.py`** — the drop-in replacement for the quadrotor model: push the
+  flat output through the Phase-1 flatness transform and read off rotor speeds and
+  flap angles. Feasible iff they stay within limits everywhere — a pure algebraic
+  check, no integration.
+* **`timeopt.py`** — initial times from segment geometry, then a 1-D search for the
+  smallest time multiplier that is feasible everywhere (the fastest version of the
+  figure). Minimum-snap is covariant under time scaling, so this reproduces the
+  exact time-scaled trajectory.
+* **`maneuvers.py`** — loop, knife-edge, climbing turn, Immelmann, Split-S,
+  differential-thrust turn, racing gates. Vertical figures keep the wing axis
+  horizontal (yaw 0, pure pitch); horizontal turns use coordinated yaw.
+
+## Validation (from `tests/test_phase2.py`)
+
+```
+T0 min-snap   waypoints interpolated                     7.6e-14   PASS
+              C3 continuous at interior knots            <1e-3      PASS
+T1 feasibility flying the same shape slower lowers demand           PASS
+T2 time-opt   fastest feasible sits on an actuator limit (util>0.9) PASS
+              e.g. loop alpha*=1.94 dur 5.20s -> flap-limited
+T3 catalog    all 8 maneuvers generate + evaluate                   PASS
+```
+
+The loop is **flap-limited**: at the time-optimal timing the flap saturates
+(~ -1 rad) during the aggressive pitch-down on the back of the loop, exactly where
+the pitch rate peaks (q ~ -4.2 rad/s). See `plots/p2_feasibility_boundary.png` and
+`plots/p2_reference_trajectory.png`.
+
 ## Parameter caveat (read this before trusting absolute numbers)
 
 `config/tailsitter.yaml` separates **published** Table II values from
@@ -109,10 +174,9 @@ trim (~16 deg) and the A1 gap shrink notably with better `cmuT`/`lDx`/arm values
 
 ## Roadmap
 
-* **Phase 2** — reuse MIT-AERA `mfboTrajectory` minimum-snap core
-  (`BaseTrajFunc`/`MinSnapTrajectory`, vehicle-agnostic), replace their quadrotor
-  feasibility model with `FlatTransform.reference`, add maneuver waypoint
-  definitions (loop, knife-edge, Immelmann, Split-S, ...) and time-optimal scaling.
+* **Phase 1 (done)** — dynamics, 6-DOF sim, differential-flatness transform.
+* **Phase 2 (done)** — minimum-snap generation, tailsitter feasibility, and
+  time-optimal scaling, with an aerobatic maneuver catalog.
 * **Phase 3** — the tailsitter INDI tracking controller (Doc 3) for closed-loop
-  flight of the generated trajectories.
-```
+  flight of the generated trajectories, closing the A1/A2 flatness approximations
+  with feedback.
