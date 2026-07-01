@@ -65,11 +65,11 @@ optimization:                # Phase 2 (trajectory generation)
   alpha_hi:        20.0
   alpha_tol:       1.0e-3
 
-controller:                  # Phase 3 (placeholders)
-  Kx:           4.0
-  Kv:           4.0
-  Ka:           1.0
-  Kq:           80.0
-  Komega:       20.0
-  lpf_cutoff_hz: 15.0
-  hpf_cutoff_hz: 1.0
+controller:                  # Phase 3 (INDI tracking controller)
+  Kx:           42.0         # position P  (body-frame gains, 1/s^2)
+  Kv:           13.0         # velocity P
+  Ka:           1.0          # acceleration feedforward
+  Kq:           240.0        # attitude P  (Kxi)
+  Komega:       30.0         # body-rate P (KOmega)
+  lpf_cutoff_hz: 20.0        # IMU low-pass cutoff [Hz]
+  hpf_cutoff_hz: 1.0         # flap-transient high-pass [Hz]

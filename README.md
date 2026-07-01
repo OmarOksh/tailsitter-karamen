@@ -10,8 +10,8 @@ the paper's differential-flatness transform, so any smooth flat output
 `sigma(t) = [x(t), psi(t)]` (position + yaw) maps to the full state and the rotor /
 flap inputs — and trajectory feasibility becomes a cheap open-loop check.
 
-**Status: Phases 1 and 2 complete and validated.** (Phase 3 = INDI tracking
-controller.)
+**Status: Phases 1-3 complete and validated.** The full pipeline runs end to end:
+dynamics + flatness, trajectory generation, and closed-loop INDI tracking.
 
 * **Phase 1** — `phi`-theory dynamics, 6-DOF simulator, differential-flatness
   transform (`sigma -> ` state + inputs), open-loop feasibility.
@@ -19,6 +19,9 @@ controller.)
   tailsitter feasibility (drop-in for the quadrotor model), and time-optimal
   scaling; a catalog of aerobatic figures (loop, knife-edge, climbing turn,
   Immelmann, Split-S, differential-thrust turn, racing gates).
+* **Phase 3** — the INDI trajectory-tracking controller (PD kinematics + INDI
+  dynamics) that flies the Phase-2 references closed-loop in the 6-DOF plant,
+  tracking to centimetres and rejecting model error and disturbances.
 
 ---
 
@@ -38,6 +41,7 @@ Open the walkthroughs — they drive every piece step by step and render the plo
 ```bash
 jupyter notebook notebooks/phase1_walkthrough.ipynb   # dynamics, sim, flatness
 jupyter notebook notebooks/phase2_walkthrough.ipynb   # min-snap, feasibility, time-opt
+jupyter notebook notebooks/phase3_walkthrough.ipynb   # closed-loop INDI tracking
 ```
 
 Run the validation suites directly:
@@ -45,6 +49,7 @@ Run the validation suites directly:
 ```bash
 python tests/test_phase1.py
 python tests/test_phase2.py
+python tests/test_phase3.py
 ```
 
 ## What's here
@@ -64,11 +69,15 @@ tailsitter-aero/
 │   │   ├── feasibility.py         # actuator demand via the flatness transform
 │   │   ├── timeopt.py             # time allocation + time-optimal scaling
 │   │   └── maneuvers.py           # aerobatic waypoint/yaw catalog
-│   └── control/                   # Phase 3 (INDI controller)         [stub]
+│   └── control/                   # Phase 3
+│       ├── indi.py                # INDI tracking controller  (Doc 3, Eqs 37-48)
+│       └── closedloop.py          # closed-loop runner + reference builder
 ├── notebooks/phase1_walkthrough.ipynb
 ├── notebooks/phase2_walkthrough.ipynb
+├── notebooks/phase3_walkthrough.ipynb
 ├── tests/test_phase1.py
 ├── tests/test_phase2.py
+├── tests/test_phase3.py
 └── plots/                         # figures written by the notebooks
 ```
 
@@ -162,6 +171,49 @@ The loop is **flap-limited**: at the time-optimal timing the flap saturates
 the pitch rate peaks (q ~ -4.2 rad/s). See `plots/p2_feasibility_boundary.png` and
 `plots/p2_reference_trajectory.png`.
 
+## Phase 3 — closed-loop INDI tracking
+
+Fly a Phase-2 reference through the plant:
+
+```python
+from tailsitter.config import load_config
+from tailsitter.trajgen import min_snap_trajectory, allocate_times, maneuvers
+from tailsitter.control import TailsitterINDI, fly
+
+cfg = load_config()
+m   = maneuvers.loop(radius=3.0, speed=6.0)
+k   = allocate_times(m["waypoints"], m["nominal_speed"]) * 2.2   # comfortable margin
+tp, ty = min_snap_trajectory(m["waypoints"], k, yaw=m["yaw"], v0=m["v0"]/2.2, v1=m["v1"]/2.2)
+
+log = fly(cfg, TailsitterINDI(cfg), tp, ty)
+print(log["rmse"], "m RMSE")            # ~0.08 m on the loop
+```
+
+The controller (`control/indi.py`) is the Doc-3 cascade: PD position/velocity ->
+INDI linear acceleration (-> attitude + thrust via the flatness map) -> PD
+attitude/rate -> INDI angular acceleration (-> moment -> actuators via the
+allocation). Each INDI stage compares the **measured** acceleration with the model
+prediction at the last applied input and commands the increment that cancels the
+difference — the unmodelled force/moment — so it needs only *local* model accuracy.
+The nonlinear inversion runs *through* the Phase-1 flatness transform. In simulation
+the "IMU" is read from the plant; pass a perturbed `model_cfg` to `TailsitterINDI`
+to give the controller a deliberately wrong model. Five gains live in the YAML
+`controller` block.
+
+## Validation (from `tests/test_phase3.py`)
+
+```
+T0 tracking     loop, matched model            RMSE  7.9 cm            PASS
+T1 mismatch     +25% mass / +40% inertia        RMSE 17.5 cm (bounded)  PASS
+T2 disturbance  2.2 N steady wind (~1/3 weight)  RMSE 27.5 cm            PASS
+T3 feedback     open-loop feedforward diverges   175x worse than INDI   PASS
+```
+
+INDI absorbs exactly the A1/A2 flatness approximations from Phase 1: they are local
+model errors, and the increments cancel them. The open-loop reference, by contrast,
+diverges by metres — feedback is what makes the aerobatic reference flyable. See
+`plots/p3_tracking.png` and `plots/p3_robustness.png`.
+
 ## Parameter caveat (read this before trusting absolute numbers)
 
 `config/tailsitter.yaml` separates **published** Table II values from
@@ -177,6 +229,10 @@ trim (~16 deg) and the A1 gap shrink notably with better `cmuT`/`lDx`/arm values
 * **Phase 1 (done)** — dynamics, 6-DOF sim, differential-flatness transform.
 * **Phase 2 (done)** — minimum-snap generation, tailsitter feasibility, and
   time-optimal scaling, with an aerobatic maneuver catalog.
-* **Phase 3** — the tailsitter INDI tracking controller (Doc 3) for closed-loop
-  flight of the generated trajectories, closing the A1/A2 flatness approximations
+* **Phase 3 (done)** — the tailsitter INDI tracking controller (Doc 3) flying the
+  generated trajectories closed-loop, closing the A1/A2 flatness approximations
   with feedback.
+
+Possible extensions: identify the estimated parameters from flight logs, add
+actuator/servo dynamics and sensor noise to the plant, gain-schedule or auto-tune
+the controller, and port the reference generation to run onboard.

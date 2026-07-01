@@ -70,13 +70,13 @@ class OptCfg:                       # Phase 2
 
 
 @dataclass
-class CtrlCfg:                      # Phase 3 (placeholders)
-    Kx: float = 4.0
-    Kv: float = 4.0
-    Ka: float = 1.0
-    Kq: float = 80.0
-    Komega: float = 20.0
-    lpf_cutoff_hz: float = 15.0
+class CtrlCfg:                      # Phase 3 (INDI tracking controller)
+    Kx: float = 42.0                # position P  (body-frame, 1/s^2)
+    Kv: float = 13.0                # velocity P
+    Ka: float = 1.0                 # acceleration feedforward
+    Kq: float = 240.0               # attitude P  (Kxi)
+    Komega: float = 30.0            # body-rate P (KOmega)
+    lpf_cutoff_hz: float = 20.0     # IMU low-pass cutoff
     hpf_cutoff_hz: float = 1.0
 
 
